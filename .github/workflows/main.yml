@@ -3,13 +3,13 @@ run-name: ${{ github.actor }} is learning GitHub Actions
 on: [push]
 jobs:
   check-bats-version:
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_ID: ${{ secrets.DATABASE_ID}}
+    runs-on: ubuntu-latest    
     steps:
       - uses: actions/checkout@v4
       - name: prepare
         run: pip install -r requirements.txt
       - name: togo
+        env:
+          DATABASE_ID: ${{ secrets.DATABASE_ID}}
         run: python stock_monitor.py
 

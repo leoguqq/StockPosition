@@ -2,4 +2,3 @@ requests
 yfinance
 datetime
 pytz
-os

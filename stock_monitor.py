@@ -34,11 +34,6 @@ NOTICE_EMAIL_TO = os.getenv("NOTICE_EMAIL_TO")
 NOTICE_EMAIL_FROM = os.getenv("NOTICE_EMAIL_FROM")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
-print(NOTION_API_KEY)
-print(DATABASE_ID)
-print(NOTICE_EMAIL_TO)
-print(NOTICE_EMAIL_FROM)
-print(SMTP_PASSWORD)
 
 def get_notion_headers():
     """生成Notion请求头"""

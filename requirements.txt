@@ -2,7 +2,3 @@ requests
 yfinance
 datetime
 pytz
-smtplib
-email.mime.text
-email.utils
-typing

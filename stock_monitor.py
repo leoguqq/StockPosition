@@ -29,7 +29,7 @@ BEIJING_TZ = pytz.timezone('Asia/Shanghai')
 
 # Secrets 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
-# DATABASE_ID = os.getenv("DATABASE_ID")
+DATABASE_ID = os.getenv("DATABASE_ID")
 NOTICE_EMAIL_TO = os.getenv("NOTICE_EMAIL_TO")
 NOTICE_EMAIL_FROM = os.getenv("NOTICE_EMAIL_FROM")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")

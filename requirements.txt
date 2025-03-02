@@ -1,5 +1,5 @@
 requests
-git+https://github.com/ranaroussi/yfinance.git@master
+git+https://github.com/ranaroussi/yfinance.git@main
 datetim
 pytz
 smtplib

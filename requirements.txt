@@ -1,6 +1,6 @@
 requests
-git+https://github.com/ranaroussi/yfinance.git@main
-datetim
+yfinance
+datetime
 pytz
 smtplib
 email.mime.text

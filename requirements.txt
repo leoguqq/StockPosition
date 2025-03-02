@@ -1,8 +1,2 @@
 requests
-yfinance
-datetim
-pytz
-smtplib
-email.mime.text
-email.utils
-typing
+

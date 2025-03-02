@@ -6,9 +6,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - run: pip install -r requirements.txt
-      - run: python stock_monitor.py
+      - name: prepare
+        run: pip install -r requirements.txt
+      - name: togo
+        run: python stock_monitor.py
 

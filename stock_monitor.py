@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 import requests
+import os
 import yfinance as yf
 from datetime import datetime
 import pytz

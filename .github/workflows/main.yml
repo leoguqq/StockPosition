@@ -1,8 +1,7 @@
 name: stocks_up_down_monitor
 run-name: ${{ github.actor }} is monitoring stock list
 #on: [push]
-on:
-  push:
+on:  
   schedule:
     - cron: '0/5 17,18,19,21,22,23 * * 1-5'
     - cron: '0 18 * * 6'

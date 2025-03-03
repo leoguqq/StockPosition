@@ -1,5 +1,5 @@
-name: stocks_up_down_monitor
-run-name: ${{ github.actor }} is monitoring stock list
+name: stocks_position_updating
+run-name: ${{ github.actor }} is calcing stock position
 #on: [push]
 on:
   schedule:
@@ -16,8 +16,5 @@ jobs:
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY}}
           DATABASE_ID: ${{ secrets.DATABASE_ID}}
-          NOTICE_EMAIL_TO: ${{ secrets.NOTICE_EMAIL_TO}}
-          NOTICE_EMAIL_FROM: ${{ secrets.NOTICE_EMAIL_FROM}}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD}}
-        run: python stock_monitor.py
+        run: python stock_position.py
 

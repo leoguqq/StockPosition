@@ -20,7 +20,7 @@ HIGH_LINE_NAME = 'High Line'
 LOW_LINE_NAME = 'Low Line'
 
 # 邮件配置
-NOTICE_EMAIL_SENDER = '股票机器人'
+NOTICE_EMAIL_SENDER = 'GIT机器人'
 SMTP_SERVER = 'smtp.qq.com'
 SMTP_PORT = 465
 

@@ -3,7 +3,7 @@ run-name: ${{ github.actor }} is calcing stock position
 #on: [push]
 on:
   schedule:
-    - cron: '0/5 1,2,3,5,6,7,18,19,20,21,22,23 * * 1-5'
+    - cron: '0/5 1,2,3,5,6,7,17,18,19,20,21,22,23 * * 1-5'
     - cron: '0 2 * * 6'
 jobs:
   check-bats-version:

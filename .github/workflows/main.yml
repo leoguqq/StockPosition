@@ -4,7 +4,6 @@ run-name: ${{ github.actor }} is calcing stock position
 on:
   schedule:
     - cron: '0/5 1,2,3,5,6,7,13,14,15,16,17,18,19 * * 1-5'
-    - cron: '0 2 * * 6'
 jobs:
   check-bats-version:
     runs-on: ubuntu-latest    

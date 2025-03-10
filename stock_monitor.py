@@ -227,13 +227,13 @@ def main():
         if price > record["high_line"]:
             print(f"↑ {record['symbol']} 突破高位线")
             if send_alert_email("high", record, price):
-                new_high = record["high_line"] * 1.01
+                new_high = price * 1.01
                 if update_notion_property(record['page_id'], high=new_high):
                     print(f"已更新 {record['symbol']} 高位线至 {new_high:.2f}")
         elif price < record["low_line"]:
             print(f"↓ {record['symbol']} 突破低位线")
             if send_alert_email("low", record, price):
-                new_low = record["low_line"] * 0.99
+                new_low = price * 0.99
                 if update_notion_property(record['page_id'], low=new_low):
                     print(f"已更新 {record['symbol']} 低位线至 {new_low:.2f}")
         else:

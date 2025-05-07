@@ -32,7 +32,7 @@ DATABASE_ID = os.getenv("DATABASE_ID")
 NOTICE_EMAIL_TO = os.getenv("NOTICE_EMAIL_TO")
 NOTICE_EMAIL_FROM = os.getenv("NOTICE_EMAIL_FROM")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-IFIND_USER=os.getenv("IFIND_USER")
+IFIND_USERNAME=os.getenv("IFIND_USERNAME")
 IFIND_PASSWORD=os.getenv("IFIND_PASSWORD")
 
 def get_notion_headers():
@@ -219,7 +219,7 @@ def main():
 
     # iFinD登录
     try:
-        ret = THS_iFinDLogin(IFIND_USER, IFIND_PASSWORD)
+        ret = THS_iFinDLogin(IFIND_USERNAME, IFIND_PASSWORD)
         if ret != 0:
             print("❌ iFinD登录失败")
             return

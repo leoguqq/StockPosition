@@ -1,8 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 import requests
-import os
-import yfinance as yf
+from iFinDPy import *
 from datetime import datetime
 import pytz
 import smtplib
@@ -33,7 +32,8 @@ DATABASE_ID = os.getenv("DATABASE_ID")
 NOTICE_EMAIL_TO = os.getenv("NOTICE_EMAIL_TO")
 NOTICE_EMAIL_FROM = os.getenv("NOTICE_EMAIL_FROM")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-
+IFIND_USER=os.getenv("IFIND_USER")
+IFIND_PASSWORD=os.getenv("IFIND_PASSWORD")
 
 def get_notion_headers():
     """生成Notion请求头"""
@@ -109,25 +109,40 @@ def parse_number(prop: Dict) -> float:
 
 
 def fetch_stock_prices(names: List[str]) -> Dict[str, float]:
-    """通过Name获取股票价格（支持代理）"""
+    """通过 iFinD 的 THS_RQ 获取股票最新价格（支持代理）"""
     valid_names = [n.strip() for n in names if n.strip()]
     if not valid_names:
         return {}
 
-    # 带代理配置的session
-    session = requests.Session()
-    if PROXY:
-        session.proxies = {"http": PROXY, "https": PROXY}
+    # 构建请求参数
+    ticker_str = ",".join(valid_names)
+    indicator = "latest"
 
     try:
-        tickers = yf.Tickers(" ".join(valid_names), session=session)
+        response = THS_RQ(ticker_str, indicator)
+
+        if response.errorcode != 0:
+            print(f"❌ iFinD请求失败: {response.errmsg}")
+            return {}
+
+        # 确保数据对齐
+        if len(response.thscode) != len(response.data[indicator]):
+            print("⚠️ 数据长度不匹配")
+            return {}
+
+        # 构建价格字典
         return {
-            name: ticker.info.get("currentPrice")
-            for name, ticker in tickers.tickers.items()
-            if ticker.info
+            code: float(price)
+            for code, price in zip(
+                response.thscode,
+                response.data[indicator]
+            )
+            if price not in (None, "", "N/A")  # 过滤无效值
         }
+
     except Exception as e:
-        print(f"获取股票价格失败: {str(e)}")
+        print(f"❌ 股票价格获取异常: {str(e)}")
+        traceback.print_exc()
         return {}
 
 
@@ -200,6 +215,18 @@ def main():
 
     # 构建唯一标识映射（使用name）
     name_map = {r["name"]: r for r in records if r["name"]}
+
+
+    # iFinD登录
+    try:
+        ret = THS_iFinDLogin(IFIND_USER, IFIND_PASSWORD)
+        if ret != 0:
+            print("❌ iFinD登录失败")
+            return
+        print("✅ iFinD登录成功")
+    except Exception as e:
+        print(f"❌ iFinD登录异常: {str(e)}")
+        return
 
     # 获取实时价格（使用name作为股票代码）
     prices = fetch_stock_prices(name_map.keys())

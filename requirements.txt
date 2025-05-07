@@ -1,4 +1,4 @@
 requests
-yfinance
+iFinDPy
 datetime
 pytz

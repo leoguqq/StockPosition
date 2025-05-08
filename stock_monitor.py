@@ -1,7 +1,6 @@
 # -*- coding: UTF-8 -*-
 
 import requests
-from iFinDPy import *
 from datetime import datetime
 import pytz
 import smtplib

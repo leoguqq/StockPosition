@@ -1,6 +1,5 @@
 import requests
 import pandas as pd
-import traceback
 import os
 
 
@@ -309,7 +308,6 @@ def calculate_assets(entries, stock_data, fx_rates):
 
     except Exception as e:
         print(f"❌ 资产计算失败: {str(e)}")
-        traceback.print_exc()
         return entries
 
 # === 更新模块 ===

@@ -15,5 +15,6 @@ jobs:
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY}}
           DATABASE_ID: ${{ secrets.DATABASE_ID}}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN}}
         run: python stock_position.py
 

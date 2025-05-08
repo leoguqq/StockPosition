@@ -1,17 +1,20 @@
 import requests
 import os
 
-
-# === 配置区 ===
-NOTION_VERSION = '2022-06-28'
-PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
-
 # Secrets 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID")
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 
 
+
+# === 配置区 ===
+NOTION_VERSION = '2022-06-28'
+PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
+# API endpoints
+IFIND_BASE_URL = 'https://ft.10jqka.com.cn'
+TOKEN_URL = f'{IFIND_BASE_URL}/api/v1/get_access_token'
+REALTIME_URL = f'{IFIND_BASE_URL}/api/v1/real_time_quotation'
 
 # Notion字段名称配置
 LAST_PRICE_NAME = 'Last Price'
@@ -22,12 +25,9 @@ RATIO_NAME = '比例'
 SHORT_NAME_PROP = '简称'
 CURRENCY_NAME = '币种'
 
-
-
 # 特殊记录名称
 CASH_NAME = '现金'
 NET_ASSET_NAME = '净资产'
-
 
 # 货币映射表（iFinD格式）
 CURRENCY_MAPPER = {

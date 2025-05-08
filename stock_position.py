@@ -1,7 +1,6 @@
 import requests
 import pandas as pd
 import traceback
-from iFinDPy import *
 import os
 
 
@@ -12,8 +11,8 @@ PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
 # Secrets 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID")
-IFIND_USERNAME = os.getenv("IFIND_USERNAME")
-IFIND_PASSWORD = os.getenv("IFIND_PASSWORD")
+REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
+
 
 
 # Notion字段名称配置
@@ -31,8 +30,6 @@ CURRENCY_NAME = '币种'
 CASH_NAME = '现金'
 NET_ASSET_NAME = '净资产'
 
-# 代理配置（可选）
-# PROXY = ""  # "http://代理IP:端口"
 
 # 货币映射表（iFinD格式）
 CURRENCY_MAPPER = {
@@ -43,6 +40,11 @@ CURRENCY_MAPPER = {
     'EUR': 'EURUSD.FX'
 }
 
+
+# 全局缓存access_token
+ACCESS_TOKEN_CACHE = None
+
+
 # === 工具函数 ===
 def get_notion_headers():
     """生成Notion API请求头"""
@@ -52,10 +54,40 @@ def get_notion_headers():
         'Content-Type': 'application/json'
     }
 
+
+def get_ifind_access_token():
+    """获取并缓存access_token"""
+    global ACCESS_TOKEN_CACHE
+
+    if ACCESS_TOKEN_CACHE:
+        return ACCESS_TOKEN_CACHE
+
+    headers = {
+        "Content-Type": "application/json",
+        "refresh_token": REFRESH_TOKEN
+    }
+
+    try:
+        response = requests.post(TOKEN_URL, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get('errorcode') != 0:
+            raise Exception(f"Token获取失败: {data.get('message')}")
+
+        ACCESS_TOKEN_CACHE = data['data']['access_token']
+        return ACCESS_TOKEN_CACHE
+
+    except Exception as e:
+        print(f"❌ 获取access_token失败: {str(e)}")
+        return None
+
+
 def validate_stock_code(code):
-    """验证股票代码有效性（新增后缀支持）"""
+    """验证股票代码有效性"""
     valid_suffix = ('.HK', '.SZ', '.SH', '.O', '.N', '.T')
     return any(code.endswith(s) for s in valid_suffix) or (len(code) <= 5 and code.isalpha())
+
 
 def determine_currency(code):
     """根据股票代码后缀确定币种"""
@@ -68,7 +100,8 @@ def determine_currency(code):
     elif code.endswith('.T'):
         return 'JPY'
     else:
-        return 'USD'  # 默认情况
+        return 'USD'
+
 
 # === 数据获取模块 ===
 def query_notion_entries():
@@ -112,13 +145,14 @@ def query_notion_entries():
         print(f"❌ Notion查询失败: {str(e)}")
         return []
 
+
 def fetch_fx_rates(currencies):
-    """获取货币汇率（使用iFinD接口）"""
+    """使用HTTP API获取货币汇率"""
     currencies = list(set([c.upper() for c in currencies if c and c.upper() != 'USD']))
     if not currencies:
         return {}
 
-    # 构造iFinD请求代码
+    # 构造请求代码
     fx_pairs = []
     for c in currencies:
         if c in CURRENCY_MAPPER:
@@ -126,27 +160,49 @@ def fetch_fx_rates(currencies):
         else:
             fx_pairs.append(f"{c}USD.FX")
 
-    rates = {}
+    access_token = get_ifind_access_token()
+    if not access_token:
+        return {}
+
+    headers = {
+        "Content-Type": "application/json",
+        "access_token": access_token
+    }
+
+    payload = {
+        "codes": ",".join(fx_pairs),
+        "indicators": "latest"
+    }
+
     try:
-        # 发送批量请求
-        response = THS_RQ(",".join(fx_pairs), "lastest_price")
-        if response.errorcode != 0:
-            print(f"❌ 汇率获取失败: {response.errmsg}")
+        response = requests.post(REALTIME_URL, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get('errorcode') != 0:
+            print(f"❌ 汇率获取失败: {data.get('message')}")
             return {}
 
-        # 构建汇率字典
-        fx_data = dict(zip(response.thscode, response.data['lastest_price']))
+        rates = {}
+        for item in data.get('tables', []):
+            thscode = item.get('thscode', '')
+            latest_list = item.get('table', {}).get('latest', [])
 
-        # 处理每个货币
-        for c in currencies:
-            pair = CURRENCY_MAPPER.get(c, f"{c}USD.FX")
-            if pair in fx_data:
-                rate = float(fx_data[pair])
-                # 处理需要反向的汇率
-                if pair.startswith('USD') and c in ['CNY', 'RMB']:
-                    rates[c] = 1 / rate
-                else:
-                    rates[c] = rate
+            if not thscode or not latest_list:
+                continue
+
+            # 提取货币对和汇率
+            pair = thscode.split('.')[0]
+            base_currency = pair[:3]
+            quote_currency = pair[3:]
+
+            rate = float(latest_list[-1])
+
+            # 处理需要反向的汇率
+            if quote_currency == 'USD':
+                rates[base_currency] = rate
+            else:
+                rates[quote_currency] = 1 / rate
 
         rates['USD'] = 1.0
         return rates
@@ -155,28 +211,44 @@ def fetch_fx_rates(currencies):
         print(f"❌ 汇率获取异常: {str(e)}")
         return {}
 
+
 def fetch_stock_data(stock_codes):
-    """获取股票数据（使用iFinD接口）"""
-    valid_data = {}
-    if not stock_codes:
-        return valid_data
+    """使用HTTP API获取股票数据"""
+    access_token = get_ifind_access_token()
+    if not access_token or not stock_codes:
+        return {}
+
+    headers = {
+        "Content-Type": "application/json",
+        "access_token": access_token
+    }
+
+    payload = {
+        "codes": ",".join(stock_codes),
+        "indicators": "latest"
+    }
 
     try:
-        # 批量获取最新价格
-        response = THS_RQ(",".join(stock_codes), "latest")
-        if response.errorcode != 0:
-            print(f"❌ 股票数据获取失败: {response.errmsg}")
+        response = requests.post(REALTIME_URL, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get('errorcode') != 0:
+            print(f"❌ 股票数据获取失败: {data.get('message')}")
             return {}
 
-        # 解析响应数据
-        for idx, code in enumerate(response.thscode):
-            price = float(response.data['latest'][idx])
-            valid_data[code] = {
-                'price': round(price, 4),
-                'longName': code  # 名称字段需要其他接口获取，暂用代码代替
-            }
+        stock_data = {}
+        for item in data.get('tables', []):
+            thscode = item.get('thscode', '')
+            latest_list = item.get('table', {}).get('latest', [])
 
-        return valid_data
+            if thscode and latest_list:
+                stock_data[thscode] = {
+                    'price': round(float(latest_list[-1]), 4),
+                    'longName': thscode  # 名称需要其他接口获取，暂用代码
+                }
+
+        return stock_data
 
     except Exception as e:
         print(f"❌ 股票数据获取异常: {str(e)}")
@@ -299,17 +371,6 @@ def update_asset_properties(page_id, assets, ratio):
 # === 主程序 ===
 def main():
     print("=== 开始同步 ===")
-
-    # iFinD登录
-    try:
-        ret = THS_iFinDLogin(IFIND_USERNAME, IFIND_PASSWORD)
-        if ret != 0:
-            print("❌ iFinD登录失败")
-            return
-        print("✅ iFinD登录成功")
-    except Exception as e:
-        print(f"❌ iFinD登录异常: {str(e)}")
-        return
 
     # 获取Notion数据
     entries = query_notion_entries()

@@ -9,31 +9,39 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 from typing import List, Dict
 
-# 配置信息
-NOTION_VERSION = '2022-06-28'
-PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
-
-# Notion字段名称配置
-LAST_PRICE_NAME = 'Last Price'
-HIGH_LINE_NAME = 'High Line'
-LOW_LINE_NAME = 'Low Line'
-
-# 邮件配置
-NOTICE_EMAIL_SENDER = 'GIT机器人'
-SMTP_SERVER = 'smtp.qq.com'
-SMTP_PORT = 465
-
-# 时区配置
-BEIJING_TZ = pytz.timezone('Asia/Shanghai')
-
 # Secrets 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID")
 NOTICE_EMAIL_TO = os.getenv("NOTICE_EMAIL_TO")
 NOTICE_EMAIL_FROM = os.getenv("NOTICE_EMAIL_FROM")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-IFIND_USERNAME=os.getenv("IFIND_USERNAME")
-IFIND_PASSWORD=os.getenv("IFIND_PASSWORD")
+REFRESH_TOKEN=os.getenv("REFRESH_TOKEN")
+
+# 配置信息
+NOTION_VERSION = '2022-06-28'
+PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
+
+# 邮件配置
+NOTICE_EMAIL_SENDER = 'GIT机器人'
+SMTP_SERVER = 'smtp.qq.com'
+SMTP_PORT = 465
+
+# API endpoints
+IFIND_BASE_URL = 'https://ft.10jqka.com.cn'
+TOKEN_URL = f'{IFIND_BASE_URL}/api/v1/get_access_token'
+REALTIME_URL = f'{IFIND_BASE_URL}/api/v1/real_time_quotation'
+
+# Notion字段名称配置
+LAST_PRICE_NAME = 'Last Price'
+HIGH_LINE_NAME = 'High Line'
+LOW_LINE_NAME = 'Low Line'
+
+# 时区配置
+BEIJING_TZ = pytz.timezone('Asia/Shanghai')
+
+# 全局缓存access_token
+ACCESS_TOKEN_CACHE = None
+
 
 def get_notion_headers():
     """生成Notion请求头"""
@@ -42,6 +50,34 @@ def get_notion_headers():
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json"
     }
+
+
+def get_ifind_access_token():
+    """获取iFinD access_token（带缓存机制）"""
+    global ACCESS_TOKEN_CACHE
+
+    if ACCESS_TOKEN_CACHE:
+        return ACCESS_TOKEN_CACHE
+
+    headers = {
+        "Content-Type": "application/json",
+        "refresh_token": REFRESH_TOKEN
+    }
+
+    try:
+        response = requests.post(TOKEN_URL, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get('errorcode') != 0:
+            raise Exception(f"Token获取失败: {data.get('message')}")
+
+        ACCESS_TOKEN_CACHE = data['data']['access_token']
+        return ACCESS_TOKEN_CACHE
+
+    except Exception as e:
+        print(f"❌ 获取access_token失败: {str(e)}")
+        return None
 
 
 def query_notion_entries() -> List[Dict]:
@@ -70,8 +106,8 @@ def query_notion_entries() -> List[Dict]:
                 props = page.get("properties", {})
                 entry = {
                     "page_id": page["id"],
-                    "name": parse_title(props.get("Name")),  # 使用Name作为唯一标识
-                    "symbol": parse_rich_text(props.get("简称")),  # 简称用于显示
+                    "name": parse_title(props.get("Name")),
+                    "symbol": parse_rich_text(props.get("简称")),
                     "high_line": parse_number(props.get(HIGH_LINE_NAME)),
                     "low_line": parse_number(props.get(LOW_LINE_NAME))
                 }
@@ -108,43 +144,63 @@ def parse_number(prop: Dict) -> float:
     return None
 
 
-def fetch_stock_prices(names: List[str]) -> Dict[str, float]:
-    """通过 iFinD 的 THS_RQ 获取股票最新价格（支持代理）"""
-    valid_names = [n.strip() for n in names if n.strip()]
-    if not valid_names:
+def fetch_stock_prices(codes: List[str]) -> Dict[str, float]:
+    """通过iFinD HTTP API获取股票最新价格"""
+    access_token = get_ifind_access_token()
+    if not access_token:
         return {}
 
-    # 构建请求参数
-    ticker_str = ",".join(valid_names)
-    indicator = "latest"
+    headers = {
+        "Content-Type": "application/json",
+        "access_token": access_token
+    }
+
+    payload = {
+        "codes": ",".join(codes),
+        "indicators": "latest"
+    }
 
     try:
-        response = THS_RQ(ticker_str, indicator)
+        response = requests.post(
+            REALTIME_URL,
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
+        response.raise_for_status()
+        data = response.json()
 
-        if response.errorcode != 0:
-            print(f"❌ iFinD请求失败: {response.errmsg}")
+        if data.get('errorcode') != 0:
+            print(f"❌ iFinD API错误: {data.get('message')}")
             return {}
 
-        # 确保数据对齐
-        if len(response.thscode) != len(response.data[indicator]):
-            print("⚠️ 数据长度不匹配")
-            return {}
+        # 修正后的数据结构解析
+        price_dict = {}
+        for item in data.get('tables', []):
+            try:
+                thscode = item.get('thscode', '')
+                latest_list = item.get('table', {}).get('latest', [])
 
-        # 构建价格字典
-        return {
-            code: float(price)
-            for code, price in zip(
-                response.thscode,
-                response.data[indicator]
-            )
-            if price not in (None, "", "N/A")  # 过滤无效值
-        }
+                if not thscode or not latest_list:
+                    continue
 
+                # 取最新价格（列表最后一个元素）
+                latest_price = float(latest_list[-1])
+                price_dict[thscode] = latest_price
+
+            except (KeyError, IndexError, ValueError) as e:
+                print(f"⚠️ 解析异常 {thscode}: {str(e)}")
+                continue
+
+        return price_dict
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ 请求iFinD API失败: {str(e)}")
+        return {}
     except Exception as e:
-        print(f"❌ 股票价格获取异常: {str(e)}")
+        print(f"❌ 未知错误: {str(e)}")
         traceback.print_exc()
         return {}
-
 
 def send_alert_email(action: str, record: Dict, price: float):
     """发送警报邮件（使用symbol显示）"""
@@ -213,27 +269,21 @@ def main():
     records = query_notion_entries()
     print(f"获取到 {len(records)} 条股票记录")
 
-    # 构建唯一标识映射（使用name）
-    name_map = {r["name"]: r for r in records if r["name"]}
+    # 构建股票代码列表（使用name字段作为股票代码）
+    valid_records = [r for r in records if r["name"]]
+    codes = [r["name"] for r in valid_records]
 
-
-    # iFinD登录
-    try:
-        ret = THS_iFinDLogin(IFIND_USERNAME, IFIND_PASSWORD)
-        if ret != 0:
-            print("❌ iFinD登录失败")
-            return
-        print("✅ iFinD登录成功")
-    except Exception as e:
-        print(f"❌ iFinD登录异常: {str(e)}")
+    # 获取实时价格
+    prices = fetch_stock_prices(codes)
+    if not prices:
+        print("❌ 未能获取任何股票价格")
         return
 
-    # 获取实时价格（使用name作为股票代码）
-    prices = fetch_stock_prices(name_map.keys())
-
-    for name, price in prices.items():
-        record = name_map.get(name)
-        if not record or price is None:
+    for record in valid_records:
+        code = record['name']
+        price = prices.get(code)
+        if price is None:
+            print(f"⚠️ 未找到 {code} 的价格数据")
             continue
 
         # 更新Last Price到Notion
@@ -242,12 +292,12 @@ def main():
             last_price=price
         )
         if not update_success:
-            print(f"⚠️ 更新{LAST_PRICE_NAME}失败: {name}")
+            print(f"⚠️ 更新{LAST_PRICE_NAME}失败: {code}")
             continue
 
         # 检查高低线数据完整性
         if None in [record["high_line"], record["low_line"]]:
-            print(f"跳过 {name}: 缺失高低线数据")
+            print(f"跳过 {code}: 缺失高低线数据")
             continue
 
         # 判断突破条件

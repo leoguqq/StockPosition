@@ -7,6 +7,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from typing import List, Dict
+import os
 
 # Secrets 配置
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")

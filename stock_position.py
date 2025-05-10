@@ -11,9 +11,11 @@ REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
 # === 配置区 ===
 NOTION_VERSION = '2022-06-28'
 PROXY = ""  # "http://代理IP:端口" "http://127.0.0.1:10809"
-# API endpoints
+
 IFIND_BASE_URL = 'https://ft.10jqka.com.cn'
-TOKEN_URL = f'{IFIND_BASE_URL}/api/v1/get_access_token'
+GET_TOKEN_URL = f'{IFIND_BASE_URL}/api/v1/get_access_token'
+# API endpoints
+UPDATE_TOKEN_URL = f'{IFIND_BASE_URL}/api/v1/update_access_token'
 REALTIME_URL = f'{IFIND_BASE_URL}/api/v1/real_time_quotation'
 
 # Notion字段名称配置
@@ -38,7 +40,6 @@ CURRENCY_MAPPER = {
     'EUR': 'EURUSD.FX'
 }
 
-
 # 全局缓存access_token
 ACCESS_TOKEN_CACHE = None
 
@@ -54,7 +55,7 @@ def get_notion_headers():
 
 
 def get_ifind_access_token():
-    """获取并缓存access_token"""
+    """获取并缓存access_token（带设备超限重试机制）"""
     global ACCESS_TOKEN_CACHE
 
     if ACCESS_TOKEN_CACHE:
@@ -66,19 +67,37 @@ def get_ifind_access_token():
     }
 
     try:
-        response = requests.post(TOKEN_URL, headers=headers, timeout=10)
+        # 首次获取token
+        response = requests.post(GET_TOKEN_URL, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
 
-        if data.get('errorcode') != 0:
-            raise Exception(f"Token获取失败: {data.get('message')}")
+        # 处理设备超限情况
+        if data.get('errorcode') != 0 and data.get('errmsg') == 'Device exceed limit.':
+            # 执行设备令牌更新
+            print(f"设备超限，更新access令牌")
+            update_response = requests.post(UPDATE_TOKEN_URL, headers=headers, timeout=10)
+            update_response.raise_for_status()
 
+            # 更新后重新获取token
+            response = requests.post(GET_TOKEN_URL, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+        # 最终校验请求结果
+        if data.get('errorcode') != 0:
+            raise Exception(f"返回原因：{data.get('errmsg')}")
+
+        # 更新缓存并返回
         ACCESS_TOKEN_CACHE = data['data']['access_token']
         return ACCESS_TOKEN_CACHE
 
+    except requests.exceptions.RequestException as e:
+        print(f"❌ 网络请求失败: {str(e)}")
     except Exception as e:
         print(f"❌ 获取access_token失败: {str(e)}")
-        return None
+
+    return None
 
 
 def validate_stock_code(code):
@@ -214,6 +233,7 @@ def fetch_stock_data(stock_codes):
     """使用HTTP API获取股票数据"""
     access_token = get_ifind_access_token()
     if not access_token or not stock_codes:
+        print(f"❌ 股票代码 或 access令牌 不完善，未获取股票行情")
         return {}
 
     headers = {
@@ -307,10 +327,11 @@ def calculate_assets(entries, stock_data, fx_rates):
 
     except Exception as e:
         print(f"❌ 资产计算失败: {str(e)}")
+        traceback.print_exc()
         return entries
 
 # === 更新模块 ===
-def update_notion_properties(page_id, data):
+def update_stock_properties(page_id, data):
     """更新股票属性（增加币种字段更新）"""
     try:
         properties = {
@@ -365,6 +386,43 @@ def update_asset_properties(page_id, assets, ratio):
         print(f"⏩ 跳过资产更新 {page_id}: {str(e)}")
         return False
 
+
+def update_notion_table(entries, stock_data):
+    # 更新Notion
+    success = 0
+    for entry in entries:
+        try:
+            if entry['is_stock']:
+                code = entry['name']
+                if code not in stock_data:
+                    continue
+
+                update_data = {
+                    'price': entry.get('price', 0),
+                    'usd_price': entry.get('usd_price', 0),
+                    'currency': entry.get('currency', 'USD')
+                }
+
+                if update_stock_properties(entry['id'], update_data) and \
+                        update_asset_properties(entry['id'], entry['new_assets'], entry['new_ratio']):
+                    success += 1
+                    print(f"🔄 更新 {code} 成功")
+
+            elif entry['name'] in [CASH_NAME, NET_ASSET_NAME]:
+                if update_asset_properties(entry['id'], entry['new_assets'], entry['new_ratio']):
+                    success += 1
+                    print(f"🔄 更新 {entry['name']} 成功")
+
+        except Exception as e:
+            print(f"⚠️ 更新异常 {entry['name']}: {str(e)}")
+    if success >0 :
+        print(f"\n✅ 同步完成: 成功更新 {success}/{len(entries)} 条记录")
+        return True
+    else:
+        print(f"\n❌ 未更新任何记录")
+        return False
+
+
 # === 主程序 ===
 def main():
     print("=== 开始同步 ===")
@@ -391,39 +449,13 @@ def main():
 
     # 获取股票数据
     stock_data = fetch_stock_data(stock_codes)
-
-    # 计算资产
-    entries = calculate_assets(entries, stock_data, fx_rates)
-
-    # 更新Notion
-    success = 0
-    for entry in entries:
-        try:
-            if entry['is_stock']:
-                code = entry['name']
-                if code not in stock_data:
-                    continue
-
-                update_data = {
-                    'price': entry.get('price', 0),
-                    'usd_price': entry.get('usd_price', 0),
-                    'currency': entry.get('currency', 'USD')
-                }
-
-                if update_notion_properties(entry['id'], update_data) and \
-                        update_asset_properties(entry['id'], entry['new_assets'], entry['new_ratio']):
-                    success += 1
-                    print(f"🔄 更新 {code} 成功")
-
-            elif entry['name'] in [CASH_NAME, NET_ASSET_NAME]:
-                if update_asset_properties(entry['id'], entry['new_assets'], entry['new_ratio']):
-                    success += 1
-                    print(f"🔄 更新 {entry['name']} 成功")
-
-        except Exception as e:
-            print(f"⚠️ 更新异常 {entry['name']}: {str(e)}")
-
-    print(f"\n✅ 同步完成: 成功更新 {success}/{len(entries)} 条记录")
+    
+    if stock_data:
+        # 计算资产
+        entries = calculate_assets(entries, stock_data, fx_rates)
+    
+        # 更新Notion
+        update_notion_table(entries, stock_data)
 
 if __name__ == "__main__":
     main()
